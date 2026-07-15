@@ -13,8 +13,22 @@ export class ServiceManager {
     this.services = JSON.parse(rawData);
   }
 
-  getServices() {
-    return [...this.services];
+  // AGREGADO: acepta filtros opcionales por category y available (vienen de req.query)
+  getServices(filters = {}) {
+    let result = [...this.services];
+
+    if (filters.category) {
+      result = result.filter(
+        (service) => service.category.toLowerCase() === filters.category.toLowerCase()
+      );
+    }
+
+    if (filters.available !== undefined) {
+      const isAvailable = filters.available === 'true';
+      result = result.filter((service) => service.available === isAvailable);
+    }
+
+    return result;
   }
 
   getServiceById(id) {

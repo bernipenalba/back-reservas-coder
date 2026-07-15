@@ -1,5 +1,5 @@
 {
-  "name": "backend-turnos-reservas",
+  "name": "back-reservas-coder",
   "version": "1.0.0",
   "type": "module",
   "description": "Sistema Backend de turnos y reservas con Node.js, Express y MongoDB",
@@ -8,9 +8,17 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js"
   },
-  "keywords": ["node", "express", "mongodb", "reservas", "turnos", "backend"],
+  "keywords": [
+    "node",
+    "express",
+    "mongodb",
+    "reservas",
+    "turnos",
+    "backend"
+  ],
   "author": "Bernardita Peñalba",
   "dependencies": {
-    "dotenv": "^17.4.2"
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1"
   }
 }
