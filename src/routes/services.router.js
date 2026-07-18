@@ -1,114 +1,55 @@
-import {Router} from 'express';
-import { ServiceManager } from '../managers/ServiceManager.js';
+import { Router } from 'express';
+import {
+  getServices,
+  getServiceById,
+  addService,
+  updateService,
+  deleteService,
+} from '../managers/ServiceManager.js';
 
 const router = Router();
-const serviceManager = new ServiceManager();
 
 // GET /api/services  (con filtros opcionales ?category= y ?available=)
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const { category, available } = req.query;
-  const services = serviceManager.getServices({ category, available });
+  const services = await getServices({ category, available });
 
-  res.status(200).json({
-    status: 'success',
-    payload: services
-  });
+  res.status(200).json({ status: 'success', payload: services });
 });
 
 // GET /api/services/:sid
-router.get('/:sid', (req, res) => {
+router.get('/:sid', async (req, res) => {
   const { sid } = req.params;
-  const service = serviceManager.getServiceById(Number(sid));
+  const service = await getServiceById(sid);
 
   if (!service) {
-    return res.status(404).json({
-      status: 'error',
-      message: 'Servicio no encontrado'
-    });
+    return res.status(404).json({ status: 'error', message: 'Servicio no encontrado' });
   }
 
-  res.status(200).json({
-    status: 'success',
-    payload: service
-  });
+  res.status(200).json({ status: 'success', payload: service });
 });
 
 // POST /api/services
-router.post('/', (req, res) => {
-  try {
-    const newService = serviceManager.addService(req.body);
-    res.status(201).json({
-      status: 'success',
-      payload: newService
-    });
-  } catch (error) {
-    res.status(400).json({
-      status: 'error',
-      message: error.message
-    });
-  }
+router.post('/', async (req, res) => {
+  const result = await addService(req.body);
+  const statusCode = result.status === 'error' ? 400 : 201;
+  res.status(statusCode).json(result);
 });
 
 // PUT /api/services/:sid
-router.put('/:sid', (req, res) => {
+router.put('/:sid', async (req, res) => {
   const { sid } = req.params;
-  const updatedService = serviceManager.updateService(Number(sid), req.body);
-
-  if (!updatedService) {
-    return res.status(404).json({
-      status: 'error',
-      message: 'Servicio no encontrado'
-    });
-  }
-
-  res.status(200).json({
-    status: 'success',
-    payload: updatedService
-  });
+  const result = await updateService(sid, req.body);
+  const statusCode = result.status === 'error' ? 404 : 200;
+  res.status(statusCode).json(result);
 });
 
 // DELETE /api/services/:sid
-router.delete('/:sid', (req, res) => {
+router.delete('/:sid', async (req, res) => {
   const { sid } = req.params;
-  const deletedService = serviceManager.deleteService(Number(sid));
-
-  if (!deletedService) {
-    return res.status(404).json({
-      status: 'error',
-      message: 'Servicio no encontrado'
-    });
-  }
-
-  res.status(200).json({
-    status: 'success',
-    payload: deletedService
-  });
+  const result = await deleteService(sid);
+  const statusCode = result.status === 'error' ? 404 : 200;
+  res.status(statusCode).json(result);
 });
 
 export default router;
-
-
-/*router.get("/", (req, res) => { //cuando se hace un request a /api/services, se delega la responsabilidad al router de services.routes.js
-    const { category } = req.query;
-
-    let filteredServices = services;
-
-    if (category) {
-        filteredServices = services.filter(
-            (service) => service.category.toLowerCase() === category.toLowerCase()
-        );
-    }
-    
-    if (filteredServices.length === 0) {
-        res.status(404).json({
-            status: 'error',
-            message: 'No se encontraron servicios para la categoría especificada'
-        });
-    }
-
-    res.status(200).json({
-        status: 'success',
-        payload: filteredServices
-    });
-});*/
-
