@@ -1,6 +1,14 @@
 # Backend Turnos y Reservas — API REST de Servicios y Reservas
 
-Proyecto Node.js con ESM que expone una API REST con Express para gestionar los servicios y las reservas de un sistema de turnos (por ejemplo: peluquería, consultas médicas, clases, etc.). La lógica de negocio vive en `ServiceManager` y `BookingManager`; las rutas solo la conectan con las peticiones HTTP. La persistencia se hace con archivos JSON (sin base de datos todavía): los datos sobreviven a un reinicio del servidor.
+Proyecto Node.js con ESM que expone una API REST con Express para gestionar los servicios y las reservas de un sistema de turnos (por ejemplo: peluquería, consultas médicas, clases, etc.). La persistencia se hace con archivos JSON (sin base de datos todavía): los datos sobreviven a un reinicio del servidor.
+
+El proyecto está organizado en tres capas, cada una con una única responsabilidad:
+
+| Capa | Archivo | Responsabilidad |
+|------|---------|-------------------|
+| Routes | `routes/*.router.js` | Solo conecta cada endpoint con su función controller. No tiene lógica. |
+| Controllers | `controllers/*.controller.js` | Lee `req`, llama al manager correspondiente, arma la respuesta HTTP (status code + JSON) y captura errores inesperados con `try/catch`. |
+| Managers | `managers/*Manager.js` | Lógica de negocio y persistencia (leer/escribir los archivos `.json`). No conoce `req` ni `res`, ni decide códigos HTTP. |
 
 ## Instalación
 
@@ -171,7 +179,7 @@ POST /api/bookings/1/services/2
 (agrega el servicio 2 a la reserva 1; si se llama de nuevo con el mismo id, incrementa "quantity" en vez de duplicar)
 ```
 
-## Uso de `ServiceManager` (lógica interna, usada por `services.router.js`)
+## Uso de `ServiceManager` (lógica interna, usada por `services.controller.js`)
 
 ```js
 import { getServices, getServiceById, addService, updateService, deleteService } from './managers/ServiceManager.js';
@@ -211,7 +219,7 @@ Actualiza los campos indicados del servicio con ese `id`. No permite modificar e
 ### `deleteService(id)`
 Elimina el servicio con ese `id` y devuelve el objeto eliminado dentro de `payload`. Devuelve `{ status: 'error', message: 'Servicio no encontrado' }` si no existe.
 
-## Uso de `BookingManager` (lógica interna, usada por `bookings.router.js`)
+## Uso de `BookingManager` (lógica interna, usada por `bookings.controller.js`)
 
 ```js
 import { createBooking, getBookingById, addServiceToBooking } from './managers/BookingManager.js';
@@ -230,16 +238,18 @@ Agrega un servicio a una reserva existente. Valida que tanto la reserva como el 
 
 ```
 src/
-  config/env.config.js             # Carga y valida variables de entorno
-  managers/ServiceManager.js       # Lógica de negocio + persistencia: CRUD sobre services
-  managers/BookingManager.js       # Lógica de negocio + persistencia: CRUD sobre bookings
-  routes/services.router.js        # Rutas HTTP del recurso services
-  routes/bookings.router.js        # Rutas HTTP del recurso bookings
-  middlewares/logger.middleware.js # Logging de peticiones
-  data/services.json               # Datos persistidos de servicios
-  data/bookings.json               # Datos persistidos de reservas
-  app.js                           # Configuración de Express (middlewares, rutas)
-  server.js                        # Punto de entrada: levanta el servidor
+  config/env.config.js               # Carga y valida variables de entorno
+  managers/ServiceManager.js         # Lógica de negocio + persistencia: CRUD sobre services
+  managers/BookingManager.js         # Lógica de negocio + persistencia: CRUD sobre bookings
+  controllers/services.controller.js # Conecta req/res con ServiceManager, arma códigos HTTP
+  controllers/bookings.controller.js # Conecta req/res con BookingManager, arma códigos HTTP
+  routes/services.router.js          # Rutas HTTP del recurso services → controller
+  routes/bookings.router.js          # Rutas HTTP del recurso bookings → controller
+  middlewares/logger.middleware.js   # Logging de peticiones
+  data/services.json                 # Datos persistidos de servicios
+  data/bookings.json                 # Datos persistidos de reservas
+  app.js                             # Configuración de Express (middlewares, rutas)
+  server.js                          # Punto de entrada: levanta el servidor
 package.json
 .env.example
 .gitignore
