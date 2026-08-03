@@ -2,13 +2,27 @@
 
 Proyecto Node.js con ESM que expone una API REST con Express para gestionar los servicios y las reservas de un sistema de turnos (por ejemplo: peluquería, consultas médicas, clases, etc.). La persistencia se hace con archivos JSON (sin base de datos todavía): los datos sobreviven a un reinicio del servidor.
 
-El proyecto está organizado en tres capas, cada una con una única responsabilidad:
+## Arquitectura en capas
 
-| Capa | Archivo | Responsabilidad |
-|------|---------|-------------------|
-| Routes | `routes/*.router.js` | Solo conecta cada endpoint con su función controller. No tiene lógica. |
-| Controllers | `controllers/*.controller.js` | Lee `req`, llama al manager correspondiente, arma la respuesta HTTP (status code + JSON) y captura errores inesperados con `try/catch`. |
-| Managers | `managers/*Manager.js` | Lógica de negocio y persistencia (leer/escribir los archivos `.json`). No conoce `req` ni `res`, ni decide códigos HTTP. |
+El proyecto está organizado en 5 capas. Cada petición HTTP recorre todas las capas en el mismo orden, de afuera hacia adentro:
+
+```
+Cliente → Route → Controller → Service → Repository → DAO → archivo JSON
+```
+
+Por ejemplo, crear un servicio nuevo (`POST /api/services`) recorre: `services.router.js` → `createService` (controller) → `services.service.js` → `services.repository.js` → `services.dao.js` → `services.json`.
+
+| Capa | Archivo | Responsabilidad | Qué NO hace |
+|------|---------|-------------------|----------------|
+| Route | `routes/*.router.js` | Conecta una URL + método HTTP con una función del controller. | No tiene lógica de negocio ni toca archivos. |
+| Controller | `controllers/*.controller.js` | Lee `req.params`/`req.query`/`req.body`, llama al service, responde con `res.status().json()`. | No decide reglas de negocio ni sabe cómo se guardan los datos. |
+| Service | `services/*.service.js` | Reglas de negocio: valida datos, decide qué significa "no encontrado", aplica lógica como el incremento de `quantity` en bookings. | No conoce Express (nada de `req`/`res`), no escribe archivos directamente. |
+| Repository | `repositories/*.repository.js` | Expone métodos claros para pedir/guardar datos (`getAll`, `getById`, `create`...), delegando siempre al DAO. | No sabe si el dato viene de un archivo o de una base de datos — eso lo decide el DAO que usa. |
+| DAO | `dao/*.dao.js` | Ejecuta la operación concreta contra la persistencia real: lee y escribe el `.json`. | No aplica reglas de negocio — solo devuelve lo que hay o guarda lo que le piden. |
+
+**Por qué esta separación:** si hay un error en una URL, se revisa la Route. Si hay un error en una regla de negocio (por ejemplo, una validación que no debería dejar pasar algo), se revisa el Service. Si hay un error leyendo o escribiendo el archivo, se revisa el DAO. Además, el día que el proyecto migre a MongoDB, alcanza con reemplazar los archivos de `dao/` por una versión que use Mongoose — **las capas de arriba (Repository, Service, Controller, Route) no necesitan cambiar ni una línea**, porque siempre hablan con el Repository de la misma forma, sin saber cómo persiste los datos por debajo.
+
+**Manejo de errores:** los `service` no devuelven `{ status: 'error' }` — **lanzan** un `Error` (`throw`) con una propiedad extra `statusCode` (400, 404, etc.) cuando algo no es válido o no se encuentra. Cada `controller` envuelve el llamado al service en `try/catch` y responde con `res.status(error.statusCode ?? 500).json({ status: 'error', message: error.message })`. Así, quien decide el código HTTP siempre es el controller, nunca el service.
 
 ## Instalación
 
@@ -83,7 +97,7 @@ Cada servicio tiene la siguiente forma:
 | `category`    | string  | Categoría a la que pertenece                   |
 | `available`   | boolean | Si el servicio está disponible para reservar   |
 
-Los datos viven en `src/data/services.json`. Cada operación de `ServiceManager` (`addService`, `updateService`, `deleteService`) lee ese archivo, modifica lo que corresponda y **vuelve a guardarlo en disco** — por eso los cambios persisten aunque reinicies el servidor.
+Los datos viven en `src/data/services.json`. Cada operación de creación/actualización/borrado atraviesa `services.service.js` → `services.repository.js` → `services.dao.js`, que es quien finalmente lee el archivo, modifica lo que corresponda y **vuelve a guardarlo en disco** — por eso los cambios persisten aunque reinicies el servidor.
 
 ## El recurso `bookings`
 
@@ -113,7 +127,7 @@ Cada reserva tiene la siguiente forma:
 | `status`      | string  | Estado de la reserva (por defecto `"pending"` si no se envía)      |
 | `services`    | array   | Servicios incluidos en la reserva (por defecto `[]` si no se envía) |
 
-Cada elemento de `services` **no** es una copia del servicio completo, sino una referencia: `{ service: <id del servicio>, quantity: <cantidad> }`. Si se agrega el mismo servicio dos veces a una reserva, no se duplica la entrada — se incrementa `quantity`. Los datos viven en `src/data/bookings.json`, con el mismo esquema de persistencia que `services`.
+Cada elemento de `services` **no** es una copia del servicio completo, sino una referencia: `{ service: <id del servicio>, quantity: <cantidad> }`. Si se agrega el mismo servicio dos veces a una reserva, no se duplica la entrada — se incrementa `quantity`. **Esta regla vive en `bookings.service.js`**, no en el DAO ni en el repository: es lógica de negocio, no un detalle de cómo se guarda el archivo. Los datos viven en `src/data/bookings.json`.
 
 ## Endpoints disponibles
 
@@ -136,6 +150,8 @@ Base URL: `http://localhost:8080`
 | POST   | `/api/bookings`                         | Crea una reserva nueva (puede iniciarse con `services` vacío)        | 201 / 400 |
 | GET    | `/api/bookings/:bid`                    | Devuelve la reserva con ese id                                        | 200 / 404 |
 | POST   | `/api/bookings/:bid/services/:sid`      | Agrega un servicio a una reserva existente (valida que ambos existan) | 200 / 404 |
+
+Los endpoints y su comportamiento externo son idénticos a la entrega anterior — este refactor solo reorganiza el código por dentro.
 
 ### Ejemplos rápidos (con Postman o Bruno)
 
@@ -179,77 +195,52 @@ POST /api/bookings/1/services/2
 (agrega el servicio 2 a la reserva 1; si se llama de nuevo con el mismo id, incrementa "quantity" en vez de duplicar)
 ```
 
-## Uso de `ServiceManager` (lógica interna, usada por `services.controller.js`)
+## Capas internas de `services`
 
 ```js
-import { getServices, getServiceById, addService, updateService, deleteService } from './managers/ServiceManager.js';
+import * as servicesService from './services/services.service.js';
 ```
 
-### `getServices(filters)`
-Devuelve un array con todos los servicios. Acepta un objeto opcional `{ category, available }` para filtrar.
-```js
-await getServices();
-await getServices({ category: 'salud' });
-await getServices({ available: 'true' });
-```
+- **`getServices(filters)`** — devuelve todos los servicios, aplicando filtro opcional `{ category, available }`.
+- **`getServiceById(id)`** — devuelve el servicio con ese `id`. Lanza un error (`statusCode: 404`) si no existe.
+- **`createService(data)`** — valida `name`, `description`, `duration`, `price`, `category` (lanza `statusCode: 400` si falta alguno); `available` es opcional (por defecto `true`).
+- **`updateService(id, data)`** — actualiza los campos indicados sin permitir modificar el `id`. Lanza `statusCode: 404` si no existe.
+- **`deleteService(id)`** — elimina el servicio. Lanza `statusCode: 404` si no existe.
 
-### `getServiceById(id)`
-Devuelve el servicio con ese `id`, o `null` si no existe.
-```js
-await getServiceById(2);
-// { id: 2, name: 'Manicura', ... }
-```
+Por debajo, `services.repository.js` expone `getAll`, `getById`, `create`, `update`, `remove` (sin ninguna regla propia, solo delega), y `services.dao.js` es quien realmente lee/escribe `services.json`.
 
-### `addService(serviceData)`
-Agrega un servicio nuevo. El `id` se genera internamente (no se debe enviar). Valida que estén presentes `name`, `description`, `duration`, `price` y `category`; si falta alguno, devuelve `{ status: 'error', message: '...' }` en vez de crear el servicio. `available` es opcional (por defecto `true`).
-```js
-await addService({
-  name: 'Clase de yoga',
-  description: 'Clase grupal de yoga para principiantes',
-  duration: 50,
-  price: 3000,
-  category: 'Bienestar',
-  available: true,
-});
-```
-
-### `updateService(id, updatedData)`
-Actualiza los campos indicados del servicio con ese `id`. No permite modificar el `id` (si se envía, se ignora). Devuelve `{ status: 'error', message: 'Servicio no encontrado' }` si no existe.
-
-### `deleteService(id)`
-Elimina el servicio con ese `id` y devuelve el objeto eliminado dentro de `payload`. Devuelve `{ status: 'error', message: 'Servicio no encontrado' }` si no existe.
-
-## Uso de `BookingManager` (lógica interna, usada por `bookings.controller.js`)
+## Capas internas de `bookings`
 
 ```js
-import { createBooking, getBookingById, addServiceToBooking } from './managers/BookingManager.js';
+import * as bookingsService from './services/bookings.service.js';
 ```
 
-### `createBooking(bookingData)`
-Crea una reserva nueva. Requiere `clientName`, `clientEmail`, `date` y `time`; si falta alguno, devuelve un error. `status` (por defecto `"pending"`) y `services` (por defecto `[]`) son opcionales.
+- **`createBooking(data)`** — requiere `clientName`, `clientEmail`, `date`, `time` (lanza `statusCode: 400` si falta alguno). `status` (por defecto `"pending"`) y `services` (por defecto `[]`) son opcionales.
+- **`getBookingById(id)`** — devuelve la reserva. Lanza `statusCode: 404` si no existe.
+- **`addServiceToBooking(bookingId, serviceId)`** — valida que la reserva exista (consultando `bookings.repository.js`) y que el servicio exista (consultando `services.repository.js`, reutilizando esa capa sin duplicar lógica de lectura de archivos). Si el servicio ya estaba en la reserva, incrementa `quantity`; si no, agrega una entrada nueva.
 
-### `getBookingById(id)`
-Devuelve la reserva con ese `id`, o `null` si no existe.
-
-### `addServiceToBooking(bookingId, serviceId)`
-Agrega un servicio a una reserva existente. Valida que tanto la reserva como el servicio existan (reutiliza `getServiceById` de `ServiceManager`). Si el servicio ya estaba en la reserva, incrementa su `quantity` en vez de duplicar la entrada.
+Por debajo, `bookings.repository.js` expone `create`, `getById`, `update`, y `bookings.dao.js` lee/escribe `bookings.json`.
 
 ## Estructura del proyecto
 
 ```
 src/
-  config/env.config.js               # Carga y valida variables de entorno
-  managers/ServiceManager.js         # Lógica de negocio + persistencia: CRUD sobre services
-  managers/BookingManager.js         # Lógica de negocio + persistencia: CRUD sobre bookings
-  controllers/services.controller.js # Conecta req/res con ServiceManager, arma códigos HTTP
-  controllers/bookings.controller.js # Conecta req/res con BookingManager, arma códigos HTTP
-  routes/services.router.js          # Rutas HTTP del recurso services → controller
-  routes/bookings.router.js          # Rutas HTTP del recurso bookings → controller
-  middlewares/logger.middleware.js   # Logging de peticiones
-  data/services.json                 # Datos persistidos de servicios
-  data/bookings.json                 # Datos persistidos de reservas
-  app.js                             # Configuración de Express (middlewares, rutas)
-  server.js                          # Punto de entrada: levanta el servidor
+  config/env.config.js                 # Carga y valida variables de entorno
+  controllers/services.controller.js   # req/res del recurso services
+  controllers/bookings.controller.js   # req/res del recurso bookings
+  services/services.service.js         # Reglas de negocio de services
+  services/bookings.service.js         # Reglas de negocio de bookings (incluye quantity)
+  repositories/services.repository.js  # Puente hacia el DAO de services
+  repositories/bookings.repository.js  # Puente hacia el DAO de bookings
+  dao/services.dao.js                  # Lectura/escritura real de services.json
+  dao/bookings.dao.js                  # Lectura/escritura real de bookings.json
+  routes/services.router.js            # Rutas HTTP del recurso services → controller
+  routes/bookings.router.js            # Rutas HTTP del recurso bookings → controller
+  middlewares/logger.middleware.js     # Logging de peticiones
+  data/services.json                   # Datos persistidos de servicios
+  data/bookings.json                   # Datos persistidos de reservas
+  app.js                               # Configuración de Express (middlewares, rutas)
+  server.js                            # Punto de entrada: levanta el servidor
 package.json
 .env.example
 .gitignore
