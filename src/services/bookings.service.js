@@ -49,12 +49,12 @@ export const addServiceToBooking = async (bid, sid) => {
     throw error;
   }
 
-  const existingEntry = booking.services.find((s) => s.service === Number(sid));
+  const existingEntry = booking.services.find((s) => s.service.toString() === sid);
 
   if (existingEntry) {
     existingEntry.quantity += 1;
   } else {
-    booking.services.push({ service: Number(sid), quantity: 1 });
+    booking.services.push({ service: sid, quantity: 1 });
   }
 
   await bookingsRepository.update(bid, { services: booking.services });

@@ -1,77 +1,34 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const filePath = path.join(__dirname, '..', 'data', 'services.json');
-
-const readServices = async () => {
-  try {
-    const data = await fs.readFile(filePath, 'utf-8');
-    return JSON.parse(data);
-  } catch (error) {
-    return [];
-  }
-};
-
-const writeServices = async (services) => {
-  await fs.writeFile(filePath, JSON.stringify(services, null, 2));
-};
+import mongoose from 'mongoose';
+import { ServiceModel } from './models/service.model.js';
 
 export const getAll = async () => {
-  return await readServices();
+  return await ServiceModel.find();
 };
 
 export const getById = async (id) => {
-  const services = await readServices();
-  const service = services.find((service) => service.id === Number(id));
-  return service ?? null;
+  if (!mongoose.isValidObjectId(id)) {
+    return null;
+  }
+
+  return await ServiceModel.findById(id);
 };
 
 export const create = async (data) => {
-  const services = await readServices();
-
-  const newService = {
-    id: services.length > 0 ? services[services.length - 1].id + 1 : 1,
-    ...data,
-  };
-
-  services.push(newService);
-  await writeServices(services);
-
-  return newService;
+  return await ServiceModel.create(data);
 };
 
 export const update = async (id, data) => {
-  const services = await readServices();
-  const index = services.findIndex((service) => service.id === Number(id));
-
-  if (index === -1) {
+  if (!mongoose.isValidObjectId(id)) {
     return null;
   }
 
-  const updatedService = {
-    ...services[index],
-    ...data,
-    id: services[index].id,
-  };
-
-  services[index] = updatedService;
-  await writeServices(services);
-
-  return updatedService;
+  return await ServiceModel.findByIdAndUpdate(id, { $set: data }, { new: true });
 };
 
 export const remove = async (id) => {
-  const services = await readServices();
-  const index = services.findIndex((service) => service.id === Number(id));
-
-  if (index === -1) {
+  if (!mongoose.isValidObjectId(id)) {
     return null;
   }
 
-  const [deletedService] = services.splice(index, 1);
-  await writeServices(services);
-
-  return deletedService;
+  return await ServiceModel.findByIdAndDelete(id);
 };
