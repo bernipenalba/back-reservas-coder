@@ -244,14 +244,37 @@ import * as bookingsService from './services/bookings.service.js';
 
 Por debajo, `bookings.repository.js` expone `create`, `getById`, `update`, y `bookings.dao.js` usa `BookingModel` (Mongoose) para hablar con la colección `bookings`.
 
+## Vistas con Handlebars
+
+Además de la API REST (que responde JSON), el proyecto tiene vistas server-side con **Handlebars**: páginas HTML armadas por el servidor, para mirar los datos directo desde el navegador sin necesidad de Postman ni un frontend aparte.
+
+| Ruta | Qué muestra |
+|------|-------------|
+| `GET /views/services` | Todos los servicios (nombre, descripción, duración, precio, categoría, disponibilidad). |
+| `GET /views/availability` | Solo los servicios con `available: true`. Se actualiza sola en tiempo real (ver más abajo). |
+
+Ambas rutas usan exactamente la misma arquitectura en capas que la API: `views.router.js` → `views.controller.js` → `services.service.js` → `services.repository.js` → `services.dao.js`. Ninguna vista tiene datos hardcodeados — todo sale de MongoDB.
+
+> Nota técnica: como los documentos de Mongoose no son objetos JavaScript "planos", `views.controller.js` los convierte con `.toObject()` antes de pasarlos a la plantilla — Handlebars, por seguridad, no puede leer directamente las propiedades internas de un documento de Mongoose.
+
+## Tiempo real con Socket.io
+
+Cuando se crea, actualiza o elimina un servicio (`POST`/`PUT`/`DELETE` en `/api/services`), el servidor emite un evento `servicesUpdated` con la lista actualizada de servicios disponibles. Cualquier navegador que tenga abierta `/views/availability` en ese momento actualiza la vista **sola, sin recargar la página**.
+
+- `src/config/socket.config.js`: crea y expone la instancia de Socket.io (`io`) para que cualquier controller pueda emitir eventos sin generar dependencias circulares.
+- `src/server.js`: ahora crea el servidor HTTP explícitamente (`createServer(app)`) para que Socket.io pueda engancharse a él, y escucha con `httpServer.listen(...)` en vez de `app.listen(...)`.
+- `src/public/js/socket.js`: el script que corre en el navegador, escucha el evento `servicesUpdated` y reescribe el contenido de `<div id="availability-list">` con los datos nuevos.
+
 ## Estructura del proyecto
 
 ```
 src/
   config/env.config.js                 # Carga y valida variables de entorno (incluye MONGO_URI)
   config/database.config.js            # Conexión a MongoDB Atlas con Mongoose
-  controllers/services.controller.js   # req/res del recurso services
+  config/socket.config.js              # Instancia de Socket.io (singleton) e initSocket/getIO
+  controllers/services.controller.js   # req/res del recurso services + emite eventos de socket
   controllers/bookings.controller.js   # req/res del recurso bookings
+  controllers/views.controller.js      # Renderiza las vistas Handlebars usando la misma capa Service
   services/services.service.js         # Reglas de negocio de services
   services/bookings.service.js         # Reglas de negocio de bookings (incluye quantity)
   repositories/services.repository.js  # Puente hacia el DAO de services
@@ -263,9 +286,15 @@ src/
   dao/models/message.model.js          # Schema y modelo de Mongoose para messages (sin rutas aún)
   routes/services.router.js            # Rutas HTTP del recurso services → controller
   routes/bookings.router.js            # Rutas HTTP del recurso bookings → controller
+  routes/views.router.js               # Rutas de vistas (/services, /availability) → controller
+  views/layouts/main.handlebars        # Layout base (head, css, scripts de socket.io)
+  views/services.handlebars            # Vista: listado completo de servicios
+  views/availability.handlebars        # Vista: servicios disponibles, se actualiza en vivo
+  public/css/styles.css                # Estilos de las tarjetas de servicio
+  public/js/socket.js                  # Cliente de Socket.io: escucha y actualiza el DOM
   middlewares/logger.middleware.js     # Logging de peticiones
-  app.js                               # Configuración de Express (middlewares, rutas)
-  server.js                            # Punto de entrada: conecta la base y levanta el servidor
+  app.js                               # Configuración de Express (Handlebars, estáticos, rutas)
+  server.js                            # Punto de entrada: conecta la base, arma el servidor HTTP + Socket.io
 package.json
 .env.example
 .gitignore

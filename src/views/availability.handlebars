@@ -1,0 +1,15 @@
+<h1>Servicios disponibles ahora</h1>
+
+<div id="availability-list">
+  {{#each services}}
+    <article class="service-card">
+      <h2>{{name}}</h2>
+      <p>{{description}}</p>
+      <p>Duración: {{duration}} minutos</p>
+      <p>Precio: ${{price}}</p>
+      <p>Categoría: {{category}}</p>
+    </article>
+  {{/each}}
+</div>
+
+<p><em>Esta lista se actualiza sola cuando cambia la disponibilidad de un servicio — no hace falta recargar la página.</em></p>

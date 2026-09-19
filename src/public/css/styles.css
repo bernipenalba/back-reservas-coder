@@ -1,0 +1,25 @@
+body {
+  font-family: Arial, sans-serif;
+  background-color: #f7f9fc;
+  color: #1a1a1a;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+h1 {
+  color: #10233f;
+}
+
+.service-card {
+  background-color: white;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.service-card h2 {
+  margin-top: 0;
+  color: #2457a6;
+}

@@ -1,0 +1,12 @@
+<h1>Servicios disponibles</h1>
+
+{{#each services}}
+  <article class="service-card">
+    <h2>{{name}}</h2>
+    <p>{{description}}</p>
+    <p>Duración: {{duration}} minutos</p>
+    <p>Precio: ${{price}}</p>
+    <p>Categoría: {{category}}</p>
+    <p>Disponible: {{available}}</p>
+  </article>
+{{/each}}
