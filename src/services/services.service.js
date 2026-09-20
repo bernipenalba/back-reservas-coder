@@ -1,20 +1,47 @@
 import * as servicesRepository from '../repositories/services.repository.js';
 
 export const getServices = async (filters = {}) => {
-  let services = await servicesRepository.getAll();
+  const { category, available, page, limit, sortBy, order } = filters;
 
-  if (filters.category) {
-    services = services.filter(
-      (service) => service.category.toLowerCase() === filters.category.toLowerCase()
-    );
+  const filter = {};
+
+  if (category) {
+    filter.category = new RegExp(`^${category}$`, 'i');
   }
 
-  if (filters.available !== undefined) {
-    const isAvailable = filters.available === 'true';
-    services = services.filter((service) => service.available === isAvailable);
+  if (available !== undefined) {
+    filter.available = available === 'true';
   }
 
-  return services;
+  const sort = sortBy ? { [sortBy]: order === 'desc' ? -1 : 1 } : undefined;
+
+  if (page === undefined) {
+    const services = await servicesRepository.getAll(filter, { sort });
+    return { services, pagination: null };
+  }
+
+  const currentPage = Number(page) || 1;
+  const currentLimit = Number(limit) || 10;
+  const skip = (currentPage - 1) * currentLimit;
+
+  const [services, total] = await Promise.all([
+    servicesRepository.getAll(filter, { skip, limit: currentLimit, sort }),
+    servicesRepository.count(filter),
+  ]);
+
+  const totalPages = Math.ceil(total / currentLimit) || 0;
+
+  return {
+    services,
+    pagination: {
+      total,
+      page: currentPage,
+      limit: currentLimit,
+      totalPages,
+      hasPrevPage: currentPage > 1,
+      hasNextPage: currentPage < totalPages,
+    },
+  };
 };
 
 export const getServiceById = async (id) => {
@@ -31,12 +58,6 @@ export const getServiceById = async (id) => {
 
 export const createService = async (data) => {
   const { name, description, duration, price, category, available } = data;
-
-  if (!name || !description || !duration || !price || !category) {
-    const error = new Error('Faltan campos obligatorios');
-    error.statusCode = 400;
-    throw error;
-  }
 
   return await servicesRepository.create({
     name,

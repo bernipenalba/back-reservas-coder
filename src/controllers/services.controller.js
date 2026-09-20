@@ -3,9 +3,28 @@ import { getIO } from '../config/socket.config.js';
 
 export const getServices = async (req, res) => {
   try {
-    const { category, available } = req.query;
-    const services = await servicesService.getServices({ category, available });
-    res.status(200).json({ status: 'success', payload: services });
+    const { category, available, page = 1, limit = 10, sortBy, order } = req.query;
+    const { services, pagination } = await servicesService.getServices({
+      category,
+      available,
+      page,
+      limit,
+      sortBy,
+      order,
+    });
+
+    res.status(200).json({
+      status: 'success',
+      payload: services,
+      ...(pagination && {
+        total: pagination.total,
+        page: pagination.page,
+        limit: pagination.limit,
+        totalPages: pagination.totalPages,
+        hasPrevPage: pagination.hasPrevPage,
+        hasNextPage: pagination.hasNextPage,
+      }),
+    });
   } catch (error) {
     res.status(error.statusCode ?? 500).json({ status: 'error', message: error.message });
   }
@@ -22,7 +41,7 @@ export const getServiceById = async (req, res) => {
 };
 
 const notifyAvailabilityChanged = async () => {
-  const availableServices = await servicesService.getServices({ available: 'true' });
+  const { services: availableServices } = await servicesService.getServices({ available: 'true' });
   getIO().emit('servicesUpdated', availableServices.map((service) => service.toObject()));
 };
 

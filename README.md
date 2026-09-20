@@ -156,19 +156,19 @@ Base URL: `http://localhost:8080`
 
 | Método | Ruta                  | Descripción                                                                 | Códigos de respuesta |
 |--------|-----------------------|------------------------------------------------------------------------------|-----------------------|
-| GET    | `/api/services`       | Devuelve todos los servicios. Acepta filtros por query: `?category=salud`, `?available=true` | 200 |
+| GET    | `/api/services`       | Devuelve servicios con filtros, orden y paginación (ver sección siguiente)   | 200 |
 | GET    | `/api/services/:sid`  | Devuelve el servicio con ese `_id`                                           | 200 / 404 |
-| POST   | `/api/services`       | Crea un servicio nuevo (el `_id` lo genera MongoDB, no enviarlo en el body)   | 201 / 400 |
-| PUT    | `/api/services/:sid`  | Actualiza el servicio (no permite modificar el `_id`)                        | 200 / 404 |
+| POST   | `/api/services`       | Crea un servicio nuevo (validado con Zod; el `_id` lo genera MongoDB)         | 201 / 400 |
+| PUT    | `/api/services/:sid`  | Actualiza el servicio (validado con Zod; no permite modificar el `_id`)       | 200 / 404 |
 | DELETE | `/api/services/:sid`  | Elimina el servicio                                                          | 200 / 404 |
 
 ### Bookings
 
 | Método | Ruta                                   | Descripción                                                        | Códigos de respuesta |
 |--------|-----------------------------------------|----------------------------------------------------------------------|-----------------------|
-| POST   | `/api/bookings`                         | Crea una reserva nueva (puede iniciarse con `services` vacío)        | 201 / 400 |
-| GET    | `/api/bookings/:bid`                    | Devuelve la reserva con ese `_id`                                     | 200 / 404 |
-| POST   | `/api/bookings/:bid/services/:sid`      | Agrega un servicio a una reserva existente (valida que ambos existan) | 200 / 404 |
+| POST   | `/api/bookings`                         | Crea una reserva nueva (validada con Zod; puede iniciarse con `services` vacío) | 201 / 400 |
+| GET    | `/api/bookings/:bid`                    | Devuelve la reserva con ese `_id`, con los servicios **poblados** (datos completos, no solo el id) | 200 / 404 |
+| POST   | `/api/bookings/:bid/services/:sid`      | Agrega un servicio a una reserva existente (ids validados con Zod; valida que ambos existan) | 200 / 400 / 404 |
 
 Las URLs, métodos y códigos de respuesta son idénticos a la entrega anterior — lo único que cambió es que `:sid`/`:bid` ahora son `_id` de MongoDB (strings tipo `65f1a2b3c4d5e6f7a8b9c0d1`) en vez de números. Un id con formato inválido (no un ObjectId real) devuelve **404** igual que un id inexistente, en vez de romper con un error 500 (ver sección "Manejo de ids inválidos").
 
@@ -178,6 +178,9 @@ Las URLs, métodos y códigos de respuesta son idénticos a la entrega anterior 
 GET  /api/services
 GET  /api/services?category=salud
 GET  /api/services?available=true
+GET  /api/services?page=2&limit=5
+GET  /api/services?sortBy=price&order=desc
+GET  /api/services?category=salud&sortBy=price&order=asc&page=1&limit=10
 GET  /api/services/<_id de un servicio>
 
 POST /api/services
@@ -214,6 +217,40 @@ POST /api/bookings/<_id reserva>/services/<_id servicio>
 (agrega el servicio a la reserva; si se llama de nuevo con los mismos dos ids, incrementa "quantity" en vez de duplicar)
 ```
 
+## Filtros, orden y paginación en `GET /api/services`
+
+Query params aceptados: `category`, `available`, `page`, `limit`, `sortBy`, `order`. Si no se manda `page`/`limit`, se usan los valores por defecto `page=1` y `limit=10`.
+
+Ejemplo de respuesta (`GET /api/services?page=1&limit=2`):
+
+```json
+{
+  "status": "success",
+  "payload": [ /* hasta 2 servicios */ ],
+  "total": 4,
+  "page": 1,
+  "limit": 2,
+  "totalPages": 2,
+  "hasPrevPage": false,
+  "hasNextPage": true
+}
+```
+
+`sortBy` acepta cualquier campo del servicio (por ejemplo `price`, `name`, `duration`); `order` acepta `asc` (por defecto) o `desc`.
+
+## Validación de datos con Zod
+
+Antes de que un dato llegue al Service (y por lo tanto, antes de tocar MongoDB), pasa por un schema de [Zod](https://zod.dev) que revisa su forma. Si algo no cumple, la petición corta ahí mismo con `400` y un mensaje describiendo qué campo falló — el controller ni se entera de que el pedido existió.
+
+| Endpoint | Schema | Qué valida |
+|----------|--------|------------|
+| `POST /api/services` | `createServiceSchema` (`src/schemas/service.schema.js`) | `name`, `description`, `category` (texto no vacío); `duration`, `price` (número mayor a 0); `available` (booleano, opcional) |
+| `PUT /api/services/:sid` | `updateServiceSchema` | Igual que el anterior, pero con todos los campos opcionales (`.partial()`) |
+| `POST /api/bookings` | `createBookingSchema` (`src/schemas/booking.schema.js`) | `clientName`, `date`, `time` (texto no vacío); `clientEmail` (formato de email); `status` (uno de `pending`/`confirmed`/`cancelled`, opcional) |
+| `POST /api/bookings/:bid/services/:sid` | `bookingParamsSchema` | Que `bid` y `sid` (los params de la URL) tengan formato de ObjectId de MongoDB |
+
+La validación vive en `src/middlewares/validate.middleware.js` (`validateBody`, `validateParams`), conectada en cada router — nunca dentro de los archivos de rutas ni mezclada con los modelos de Mongoose.
+
 ## Manejo de ids inválidos
 
 Como los ids ahora son `ObjectId` de MongoDB, pedir un id con un formato que no corresponde (por ejemplo, un número viejo estilo `"999"` o cualquier texto random) haría que Mongoose lance un error interno (`CastError`) si no se lo maneja. Cada función del DAO que recibe un id (`getById`, `update`, `remove`) empieza chequeando `mongoose.isValidObjectId(id)`; si no es válido, devuelve `null` directamente — el mismo camino que ya usa el Service para traducir "no encontrado" en un `404`, sin necesidad de tocar nada por encima del DAO.
@@ -224,7 +261,7 @@ Como los ids ahora son `ObjectId` de MongoDB, pedir un id con un formato que no 
 import * as servicesService from './services/services.service.js';
 ```
 
-- **`getServices(filters)`** — devuelve todos los servicios, aplicando filtro opcional `{ category, available }` en JavaScript sobre el resultado de `repository.getAll()`.
+- **`getServices(filters)`** — arma un filtro de MongoDB a partir de `{ category, available }`, un orden opcional a partir de `{ sortBy, order }`, y devuelve `{ services, pagination }`. Si `filters.page` no viene definido, `pagination` es `null` y se devuelven todos los resultados sin recortar (así es como lo usan internamente las vistas y el aviso de Socket.io); si `page` viene definido, se pagina de verdad y `pagination` trae `total`, `page`, `limit`, `totalPages`, `hasPrevPage`, `hasNextPage`.
 - **`getServiceById(id)`** — devuelve el servicio con ese `id`. Lanza un error (`statusCode: 404`) si no existe o si el id no tiene formato válido.
 - **`createService(data)`** — valida `name`, `description`, `duration`, `price`, `category` (lanza `statusCode: 400` si falta alguno); `available` es opcional (por defecto `true`).
 - **`updateService(id, data)`** — actualiza los campos indicados sin permitir modificar el `_id`. Lanza `statusCode: 404` si no existe.
@@ -239,8 +276,10 @@ import * as bookingsService from './services/bookings.service.js';
 ```
 
 - **`createBooking(data)`** — requiere `clientName`, `clientEmail`, `date`, `time` (lanza `statusCode: 400` si falta alguno). `status` (por defecto `"pending"`) y `services` (por defecto `[]`) son opcionales.
-- **`getBookingById(id)`** — devuelve la reserva. Lanza `statusCode: 404` si no existe.
-- **`addServiceToBooking(bookingId, serviceId)`** — valida que la reserva exista (consultando `bookings.repository.js`) y que el servicio exista (consultando `services.repository.js`, reutilizando esa capa sin duplicar lógica de acceso a datos). Compara los `ObjectId` convirtiéndolos a texto (`.toString()`) antes de comparar. Si el servicio ya estaba en la reserva, incrementa `quantity`; si no, agrega una entrada nueva.
+- **`getBookingById(id)`** — devuelve la reserva con los servicios **poblados** (usa `bookingsRepository.getByIdPopulated`, que aplica `.populate('services.service')`). Lanza `statusCode: 404` si no existe.
+- **`addServiceToBooking(bookingId, serviceId)`** — valida que la reserva exista (consultando `bookings.repository.js`, con la versión **sin poblar**, `getById`) y que el servicio exista (consultando `services.repository.js`). Compara los `ObjectId` convirtiéndolos a texto (`.toString()`) antes de comparar. Si el servicio ya estaba en la reserva, incrementa `quantity`; si no, agrega una entrada nueva.
+
+> Por qué dos funciones de lectura distintas (`getById` y `getByIdPopulated`): `populate` es solo para *mostrar* datos completos, nunca para guardar — si `addServiceToBooking` usara la versión poblada, terminaría persistiendo el objeto completo del servicio dentro de la reserva por error, en vez de la referencia (`ObjectId`) que pide la consigna.
 
 Por debajo, `bookings.repository.js` expone `create`, `getById`, `update`, y `bookings.dao.js` usa `BookingModel` (Mongoose) para hablar con la colección `bookings`.
 
@@ -279,11 +318,14 @@ src/
   services/bookings.service.js         # Reglas de negocio de bookings (incluye quantity)
   repositories/services.repository.js  # Puente hacia el DAO de services
   repositories/bookings.repository.js  # Puente hacia el DAO de bookings
-  dao/services.dao.js                  # Acceso a la colección services (Mongoose)
-  dao/bookings.dao.js                  # Acceso a la colección bookings (Mongoose)
+  dao/services.dao.js                  # Acceso a la colección services (filtros, orden, paginación)
+  dao/bookings.dao.js                  # Acceso a la colección bookings (incluye getByIdPopulated)
   dao/models/service.model.js          # Schema y modelo de Mongoose para services
   dao/models/booking.model.js          # Schema y modelo de Mongoose para bookings
   dao/models/message.model.js          # Schema y modelo de Mongoose para messages (sin rutas aún)
+  schemas/service.schema.js            # Schemas de Zod: createServiceSchema, updateServiceSchema
+  schemas/booking.schema.js            # Schemas de Zod: createBookingSchema, bookingParamsSchema
+  middlewares/validate.middleware.js   # validateBody / validateParams (fábrica de middlewares)
   routes/services.router.js            # Rutas HTTP del recurso services → controller
   routes/bookings.router.js            # Rutas HTTP del recurso bookings → controller
   routes/views.router.js               # Rutas de vistas (/services, /availability) → controller

@@ -4,12 +4,6 @@ import * as servicesRepository from '../repositories/services.repository.js';
 export const createBooking = async (data) => {
   const { clientName, clientEmail, date, time, status, services } = data;
 
-  if (!clientName || !clientEmail || !date || !time) {
-    const error = new Error('Faltan campos obligatorios');
-    error.statusCode = 400;
-    throw error;
-  }
-
   return await bookingsRepository.create({
     clientName,
     clientEmail,
@@ -21,7 +15,7 @@ export const createBooking = async (data) => {
 };
 
 export const getBookingById = async (id) => {
-  const booking = await bookingsRepository.getById(id);
+  const booking = await bookingsRepository.getByIdPopulated(id);
 
   if (!booking) {
     const error = new Error('Reserva no encontrada');
