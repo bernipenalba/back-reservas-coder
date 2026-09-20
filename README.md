@@ -1,6 +1,6 @@
 # Backend Turnos y Reservas — API REST de Servicios y Reservas
 
-Proyecto Node.js con ESM que expone una API REST con Express para gestionar los servicios y las reservas de un sistema de turnos (por ejemplo: peluquería, consultas médicas, clases, etc.). La persistencia se hace con **MongoDB Atlas**, usando **Mongoose** como capa de acceso a la base de datos.
+Proyecto Node.js con ESM que expone una API REST con Express para gestionar los servicios y las reservas de un sistema de turnos (por ejemplo: peluquería, consultas médicas, clases, etc.). La persistencia se hace con **MongoDB Atlas**, usando **Mongoose** como capa de acceso a la base de datos. Los datos de entrada se validan con **Zod** antes de llegar a la base. Además de la API, el proyecto incluye vistas server-side con **Handlebars** y una funcionalidad en tiempo real con **Socket.io**.
 
 ## Arquitectura en capas
 
@@ -20,7 +20,7 @@ Por ejemplo, crear un servicio nuevo (`POST /api/services`) recorre: `services.r
 | Repository | `repositories/*.repository.js` | Expone métodos claros para pedir/guardar datos (`getAll`, `getById`, `create`...), delegando siempre al DAO. | No sabe si el dato viene de MongoDB o de otro motor — eso lo decide el DAO que usa. |
 | DAO | `dao/*.dao.js` | Ejecuta la operación concreta contra la persistencia real usando los modelos de Mongoose (`dao/models/`). | No aplica reglas de negocio — solo devuelve lo que hay o guarda lo que le piden. |
 
-**Por qué esta separación:** si hay un error en una URL, se revisa la Route. Si hay un error en una regla de negocio, se revisa el Service. Si hay un error consultando la base de datos, se revisa el DAO. Esta entrega migró la persistencia de archivos JSON a MongoDB **cambiando únicamente los archivos de `dao/`** — ningún archivo de `repositories/`, `services/`, `controllers/` ni `routes/` tuvo que modificarse, salvo un ajuste puntual en `bookings.service.js` por el cambio de tipo de dato de los ids (ver más abajo). Esa es la prueba concreta del beneficio de la arquitectura en capas.
+**Por qué esta separación:** si hay un error en una URL, se revisa la Route. Si hay un error en una regla de negocio, se revisa el Service. Si hay un error consultando la base de datos, se revisa el DAO. Gracias a este aislamiento, la persistencia (`dao/`) podría reemplazarse por otro motor de base de datos sin tener que tocar `repositories/`, `services/`, `controllers/` ni `routes/` — son capas independientes entre sí.
 
 **Manejo de errores:** los `service` no devuelven `{ status: 'error' }` — **lanzan** un `Error` (`throw`) con una propiedad extra `statusCode` (400, 404, etc.) cuando algo no es válido o no se encuentra. Cada `controller` envuelve el llamado al service en `try/catch` y responde con `res.status(error.statusCode ?? 500).json({ status: 'error', message: error.message })`.
 
@@ -146,7 +146,7 @@ Cada elemento de `services` **no** es una copia del servicio completo, sino una 
 
 ## El recurso `messages` (modelo únicamente)
 
-`src/dao/models/message.model.js` define un modelo con `user` y `message` (ambos requeridos) más timestamps. No tiene rutas ni lógica propia en esta entrega — está preparado para usarse más adelante con vistas o WebSockets.
+`src/dao/models/message.model.js` define un modelo con `user` y `message` (ambos requeridos) más timestamps. Por el momento no tiene rutas ni lógica propia — queda preparado como base para una futura funcionalidad de mensajería o notificaciones.
 
 ## Endpoints disponibles
 
@@ -170,7 +170,7 @@ Base URL: `http://localhost:8080`
 | GET    | `/api/bookings/:bid`                    | Devuelve la reserva con ese `_id`, con los servicios **poblados** (datos completos, no solo el id) | 200 / 404 |
 | POST   | `/api/bookings/:bid/services/:sid`      | Agrega un servicio a una reserva existente (ids validados con Zod; valida que ambos existan) | 200 / 400 / 404 |
 
-Las URLs, métodos y códigos de respuesta son idénticos a la entrega anterior — lo único que cambió es que `:sid`/`:bid` ahora son `_id` de MongoDB (strings tipo `65f1a2b3c4d5e6f7a8b9c0d1`) en vez de números. Un id con formato inválido (no un ObjectId real) devuelve **404** igual que un id inexistente, en vez de romper con un error 500 (ver sección "Manejo de ids inválidos").
+`:sid`/`:bid` son siempre `_id` de MongoDB (strings tipo `65f1a2b3c4d5e6f7a8b9c0d1`), no números. Un id con formato inválido (no un ObjectId real) devuelve **404** igual que un id inexistente, en vez de romper con un error 500 (ver sección "Manejo de ids inválidos").
 
 ### Ejemplos rápidos (con Postman)
 
